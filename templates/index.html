@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Last.fm Profile Radio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+</head>
+<body>
+<div id="hover-bg"></div>
+<div id="loading-overlay"><div class="spinner"></div></div>
+<div class="container">
+  <header class="header">
+    {% if profile_image %}
+    <div class="profile-banner">
+      <img src="{{ profile_image }}" alt="Profile Image">
+    </div>
+    {% endif %}
+    <h1>Last.fm Profile Radio</h1>
+  </header>
+  <div class="filters">
+    <form method="post" action="{{ url_for('index') }}">
+      <input type="text" id="username" name="username" value="{{ username }}" placeholder="Username" required>
+      <select id="period" name="period">
+        <option value="last_week" {% if period=='last_week' %}selected{% endif %}>Last week</option>
+        <option value="last_month" {% if period=='last_month' %}selected{% endif %}>Last month</option>
+        <option value="past_6_months" {% if period=='past_6_months' %}selected{% endif %}>Past 6 months</option>
+        <option value="this_year" {% if period=='this_year' %}selected{% endif %}>This year</option>
+        <option value="past_year" {% if period=='past_year' %}selected{% endif %}>Past year</option>
+      </select>
+      <button type="submit">Load Tracks</button>
+    </form>
+  </div>
+   {% if tracks %}
+  <div class="action-bar">
+    <button id="playlist-btn">Open as playlist on YouTube</button>
+  </div>
+     <div class="tracks">
+         {% for track in tracks %}
+ <div class="track">
+   {% if track.image and track.image[-1]['#text'] %}
+     <img src="{{ track.image[-1]['#text'] }}" alt="Album Art">
+   {% endif %}
+   <div class="info">
+     <div class="title">
+       <a href="{{ track.url }}" target="_blank">{{ track.name }}</a>
+     </div>
+     <div class="track-body">
+       <div class="artist-name">{{ track.artist['#text'] }}</div>
+       <div class="buttons">
+         <button class="play-btn" data-query="{{ track.artist['#text'] }} {{ track.name }}">Play on YouTube</button>
+       </div>
+     </div>
+     <div class="last-played">
+       Last played: <span class="date" {% if track.date %}data-ts="{{ track.date.uts }}"{% endif %}>
+         {{ track.date['#text'] if track.date else 'Now Playing' }}
+       </span>
+     </div>
+   </div>
+ </div>
+         {% endfor %}
+     </div>
+   {% endif %}
+
+<!-- Toggle YouTube iframes and handle queue -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Loading overlay control
+    var loadingOverlay = document.getElementById('loading-overlay');
+    function showLoading() { loadingOverlay.style.display = 'flex'; }
+    function hideLoading() { loadingOverlay.style.display = 'none'; }
+
+    // show spinner on form submit
+    var formEl = document.querySelector('form');
+    if (formEl) formEl.addEventListener('submit', showLoading);
+
+    // Hover overlay: show album art faded
+    document.querySelectorAll('.track').forEach(function(tr) {
+      tr.addEventListener('mouseenter', function() {
+        var imgEl = tr.querySelector('img');
+        if (imgEl && imgEl.src) {
+          var bg = document.getElementById('hover-bg');
+          bg.style.backgroundImage = 'url(' + imgEl.src + ')';
+          bg.style.opacity = '0.3';
+        }
+      });
+      tr.addEventListener('mouseleave', function() {
+        var bg = document.getElementById('hover-bg');
+        bg.style.opacity = '0';
+      });
+    });
+
+    // Audio stream handling
+
+    function fetchVideoId(query) {
+      return fetch('/video_id?q=' + encodeURIComponent(query))
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          console.log('Fetched ID for', query, ':', data.id);
+          return data.id;
+        })
+        .catch(function(err) {
+          console.error('Error fetching video ID for', query, err);
+          return '';
+        });
+    }
+
+    var playlistBtn = document.getElementById('playlist-btn');
+    if (playlistBtn) {
+      playlistBtn.addEventListener('click', function() {
+        showLoading();
+        var queries = Array.from(document.querySelectorAll('.play-btn')).map(btn => btn.dataset.query);
+        Promise.all(queries.map(fetchVideoId)).then(ids => {
+          ids = ids.filter(Boolean);
+          if (!ids.length) {
+            alert('No videos found for playlist.');
+            return;
+          }
+          var url = 'https://www.youtube.com/watch_videos?video_ids=' + ids.join(',');
+          window.open(url, '_blank');
+        }).finally(hideLoading);
+      });
+    }
+
+    document.querySelectorAll('.play-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var q = btn.dataset.query;
+        fetchVideoId(q).then(function(id) {
+          if (id) {
+            window.open('https://www.youtube.com/watch?v=' + id, '_blank');
+          } else {
+            window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(q), '_blank');
+          }
+        });
+      });
+    });
+
+    // Convert UTC timestamps to local time with custom format
+    document.querySelectorAll('.date[data-ts]').forEach(function(el) {
+      var ts = parseInt(el.getAttribute('data-ts'), 10) * 1000;
+      var dt = new Date(ts);
+      var datePart = dt.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+      var timePart = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+      el.textContent = datePart + ' - ' + timePart;
+    });
+  });
+</script>
+</body>
+</html>
